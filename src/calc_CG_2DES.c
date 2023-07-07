@@ -33,6 +33,7 @@ void calc_CG_2DES(t_non *non){
     float *re_window_GB, * im_window_GB;
     float *re_window_EA, * im_window_EA;
     float *re_2DES , *im_2DES;
+    float *P_DA;
     int pro_dim;
     pro_dim=project_dim(non);
     printf("Dimension %d\n",non->tmax*9*pro_dim);
@@ -44,6 +45,7 @@ void calc_CG_2DES(t_non *non){
     im_window_GB = (float *)calloc(non->tmax*9*pro_dim,sizeof(float)); 
     re_window_EA = (float *)calloc(non->tmax*9*pro_dim,sizeof(float));
     im_window_EA = (float *)calloc(non->tmax*9*pro_dim,sizeof(float));  
+    P_DA=(float *)calloc(pro_dim*pro_dim*non->tmax2,sizeof(float));
     printf("Print %d\n",non->tmax2);
     printf("Performing the CG_2DES calculation.\n"); 
 
@@ -67,16 +69,19 @@ void calc_CG_2DES(t_non *non){
      ||  (!strcmp(non->technique, "CG_full_2DES_segments")))  {*/
       if (!strcmp(non->technique, "CG_2DES") ||  (!strcmp(non->technique, "CG_full_2DES_segments")))  {
         printf(" full  part");
+        CG_2DES_P_DA(non,P_DA,pro_dim);
         CG_full_2DES_segments(non,re_doorway,im_doorway,
                                   re_window_SE,im_window_SE,
                                   re_window_GB, im_window_GB,
-                                  re_window_EA,im_window_EA);
+                                  re_window_EA,im_window_EA,
+				  P_DA,pro_dim);
      }
 
     free(re_doorway),      free(im_doorway);
     free(re_window_SE),    free(im_window_SE);
     free(re_window_GB),    free(im_window_GB);
     free(re_window_EA),    free(im_window_EA);  
+    free(P_DA);
     return;
 }
 
@@ -366,12 +371,12 @@ void CG_2DES_doorway(t_non *non,float *re_doorway,float *im_doorway){  /* what *
 
  fclose(outone);
  */
- printf("the doorway part run successfully \n ");  
+ printf("The doorway part run successfully!\n");  
 }
 
-
+/* Here we will calculate the population transfer during the waiting time */
 //void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, float* P0, int N){
-void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
+void CG_2DES_P_DA(t_non *non,float *P_DA, int N){
     printf("Calculate population transfer!\n");
     float *eigK_re, *eigK_im; // eigenvalues of K
     float *evecL, *evecR; // eigenvectors of K
@@ -380,6 +385,8 @@ void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
     float *cnr;
     int a, b, c;
     FILE *outone;
+    FILE *Rate;
+    float *K;
     
     eigK_re = (float *)calloc(N*N,sizeof(float));
     eigK_im = (float *)calloc(N*N,sizeof(float));
@@ -388,6 +395,25 @@ void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
     ivecL = (float *)calloc(N*N,sizeof(float));
     ivecR = (float *)calloc(N*N,sizeof(float));
     iP0 = (float *)calloc(N*N,sizeof(float));
+    cnr = (float *)calloc(N * N, sizeof(float));
+    K=(float *)calloc(N*N,sizeof(float));
+
+  /* Open the rate matrix file */
+  Rate=fopen("RateMatrix.dat","r");
+  if (Rate==NULL){
+    printf("RateMatrix file not found!\n");
+    exit(1);
+  }
+  /* Read rate matrix */
+  for (a=0;a<N*N;a++){
+    if (fscanf(Rate,"%f",&K[a])!=1){
+      printf("Error in reading in ratematrix!\n");
+      exit(0);
+    }
+    printf("%f ",K[a]);
+  }
+  printf("\nCompleted reading the Rate matrix.\n");
+
 
     // Diagonalize K matrix
     diagonalize_real_nonsym(K, eigK_re, eigK_im, evecL, evecR, ivecL, ivecR, N);
@@ -410,9 +436,10 @@ void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
     // iP0 = ivecR*P(0)
 
     // Loop over t2
-    /*Here we assume the P0 is a N*N matrix*/
+    /* Here we assume the P0 is a N*N matrix, where N is the number of segments */
+    /* We should change the code so nt2*non->deltat is taken from an array or desired t2 times */
     for (int nt2 = 0; nt2<non->tmax2; nt2++) {
-        cnr = (float *)calloc(N * N, sizeof(float));
+	clearvec(cnr,N*N); /* Empty auxillary vector */ 
         for (a = 0; a < N; a++) {
             for (b = 0; b < N; b++) {
                 cnr[a + b * N] += exp(eigK_re[a] * nt2 * non->deltat) * ivecR[a + b*N];
@@ -423,20 +450,22 @@ void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
             for (b = 0; b < N; b++) {
                 for (c = 0; c < N; c++) {
                     //P_DA[nt2 + (a + c * N)*non->tmax2] += evecR[a + b * N] * cnr[b + c * N];
-                    P_DA[nt2*N+c*N*non->tmax2+a] += evecR[a + b * N] * cnr[b + c * N];
+                    //P_DA[nt2*N+c*N*non->tmax2+a] += evecR[a + b * N] * cnr[b + c * N];
+		    P_DA[nt2*N*N+c*N+a] += evecR[a + b * N] * cnr[b + c * N];
+                    /* TLC why not P_DA[nt2*N*N+c*N+a]? */
                 }
             }
         }   // evecR*cnr
-        free(cnr);
     }
 
-    // Write to file
+    /* Write to file */
     outone=fopen("KPop.dat","w");
-    for (int t2=0;t2<non->tmax2;t2+=non->dt2){
-        fprintf(outone,"%f ",t2*non->deltat);
+    for (int nt2=0;nt2<non->tmax2;nt2++){
+        fprintf(outone,"%f ",nt2*non->deltat);
         for (int a=0;a<N;a++){
             for (int b=0;b<N;b++){
-                fprintf(outone,"%f ",P_DA[t2*N+b*N*non->tmax2+a]);
+                fprintf(outone,"%f ",P_DA[nt2*N+b*N*non->tmax2+a]);
+		/* TLC why not P_DA[nt2*N*N+c*N+a]? */
                                           
             }
         }
@@ -451,14 +480,14 @@ void CG_2DES_P_DA(t_non *non,float *P_DA,float* K, int N){
     free(evecR);
     free(ivecL);
     free(ivecR);
+    free(K);
 
+    printf("The waiting time propagation part run successfully!\n");  
     return;
-    printf("the PD_t2 part run successfully \n ");  
 }
 
 
-
-
+/* Calcualte doorway function for stimulated emission */
 void CG_2DES_window_SE(t_non *non, float *re_window_SE, float *im_window_SE){
    /* Initialize variables*/
  /* The window part for SE*/
@@ -742,7 +771,7 @@ void CG_2DES_window_SE(t_non *non, float *re_window_SE, float *im_window_SE){
  printf("the SE part run successfully \n ");  
 }
 
-
+/* Calculate the window function for ground state bleach */
 void CG_2DES_window_GB(t_non *non,float *re_window_GB,float *im_window_GB){
    /* Initialize variables*/
  /* The window part for SE*/
@@ -994,6 +1023,7 @@ void CG_2DES_window_GB(t_non *non,float *re_window_GB,float *im_window_GB){
  printf("the GB part run successfully \n ");  
 }
 
+/* Calculate the window function for the excited state absorption */
 void CG_2DES_window_EA(t_non *non,float *re_window_EA,float *im_window_EA){
    /* Initialize variables*/
  /* The window part for SE*/
@@ -1094,8 +1124,8 @@ void CG_2DES_window_EA(t_non *non,float *re_window_EA,float *im_window_EA){
   /* time-independent and only one snapshot is stored */
   read_coupling(non,C_traj,mu_traj,Hamil_i_e,mu_xyz);
   
-    /* Loop over samples */
- for (samples=non->begin;samples<non->end;samples++){
+  /* Loop over samples */
+  for (samples=non->begin;samples<non->end;samples++){
       /* Calculate linear response */   
     ti=samples*non->sample;
     if (non->cluster!=-1){
@@ -1316,11 +1346,109 @@ void CG_2DES_window_EA(t_non *non,float *re_window_EA,float *im_window_EA){
 */ 
     //printf("this is a test \n"); 
   //exit(1);
-  printf("the EA part run successfully \n ");  
+  printf("The EA part run successfully!\n");
+  return;  
 }
 
 
+/* Combine the doorway and window functions for the segments */
 void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
+                                      float *re_window_SE,float *im_window_SE,
+                                      float *re_window_GB, float *im_window_GB,
+                                      float *re_window_EA,float *im_window_EA,
+				      float *P_DA,int N){
+
+  int t1,t2,t3;
+  int S,R; // Segment indices
+  int indext1,indext2,indext3;
+  int sampleCount=1;
+  int pol,molPol;
+  int px[4];
+  float **re_2DES_NR_sum,  **re_2DES_R_sum, **im_2DES_NR_sum, **im_2DES_R_sum;
+  float polWeight;
+
+  re_2DES_NR_sum = (float **)calloc2D(non->tmax3,non->tmax1,sizeof(float),sizeof(float*));
+  re_2DES_R_sum  = (float **)calloc2D(non->tmax3,non->tmax1,sizeof(float),sizeof(float*));
+  im_2DES_NR_sum = (float **)calloc2D(non->tmax3,non->tmax1,sizeof(float),sizeof(float*));
+  im_2DES_R_sum  = (float **)calloc2D(non->tmax3,non->tmax1,sizeof(float),sizeof(float*));
+
+  /* We repeat everyting for each waiting time t2 */
+  for (t2=0;t2<non->tmax2;t2++){
+     /* We repeat everyting for each labframe polarization */
+     for (pol=0;pol<3;pol++){
+        /* Loop over the 21 microscopic polarizations */
+	for (molPol=0;molPol<21;molPol++){
+          polWeight=polarweight(pol,molPol);
+	  polar(px,molPol);	  
+	  /* Loop over times */
+	  for (t1=0;t1<non->tmax1;t1++){
+            for (t3=0;t3<non->tmax3;t3++){
+	      /* Loop over segments */
+	      for (S=0;S<N;S++){
+		for (R=0;R<N;R++){
+	          /* First do GB */
+                  indext1=S*9*non->tmax1+px[0]*3*non->tmax1+px[1]*non->tmax1+t1;
+                  indext2=t2*N*N+R*N+S;
+	          indext3=R*9*non->tmax3+px[2]*3*non->tmax3+px[3]*non->tmax3+t3;
+		  /* Ground state bleach */
+	          re_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_GB[indext3];
+		  re_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
+	          im_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
+		  im_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_GB[indext3];
+	          re_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_GB[indext3];
+                  re_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
+                  im_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
+                  im_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_GB[indext3];
+		  /* Stimulated Emission */
+		  re_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_SE[indext3];
+                  re_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_SE[indext3];
+                  im_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_SE[indext3];
+                  im_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_SE[indext3];
+                  re_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_SE[indext3];
+                  re_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_SE[indext3];
+                  im_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_SE[indext3];
+                  im_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_SE[indext3];
+                  /* Excited State Absorption */
+		  re_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_EA[indext3];
+                  re_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
+                  im_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
+                  im_2DES_R_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_EA[indext3];
+                  re_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_EA[indext3];
+                  re_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
+                  im_2DES_NR_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
+                  im_2DES_NR_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_EA[indext3];
+		}
+	      }
+	    }
+	  }
+	}
+	/* Write response functions to file, not we want name to depend on t2 */
+        if (pol==0){
+          print2D("RparI.dat", im_2DES_R_sum,  re_2DES_R_sum,  non, sampleCount);
+          print2D("RparII.dat",  im_2DES_NR_sum, re_2DES_NR_sum, non, sampleCount);
+	} else if (pol==1) {
+	  print2D("RperI.dat", im_2DES_R_sum,  re_2DES_R_sum,  non, sampleCount);
+          print2D("RperII.dat",  im_2DES_NR_sum, re_2DES_NR_sum, non, sampleCount);
+	} else {
+	  print2D("RcroI.dat", im_2DES_R_sum,  re_2DES_R_sum,  non, sampleCount);
+          print2D("RcroII.dat",  im_2DES_NR_sum, re_2DES_NR_sum, non, sampleCount);
+	}
+	/* Loop over times to clean response functions */
+        for (t1=0;t1<non->tmax1;t1++){
+          for (t3=0;t3<non->tmax3;t3++){
+              re_2DES_R_sum[t3][t1]=0;
+              im_2DES_R_sum[t3][t1]=0;
+              re_2DES_NR_sum[t3][t1]=0;
+              im_2DES_NR_sum[t3][t1]=0;
+          }
+        }
+     }
+  }
+  free(re_2DES_NR_sum) ,free(re_2DES_R_sum),free(im_2DES_NR_sum) ,free(im_2DES_R_sum);
+}
+
+/* Combine the doorway and window functions for the segments */
+void CG_full_2DES_segments_kai(t_non *non,float *re_doorway,float *im_doorway,
                                       float *re_window_SE,float *im_window_SE,
                                       float *re_window_GB, float *im_window_GB,
                                       float *re_window_EA,float *im_window_EA){
@@ -1404,13 +1532,13 @@ void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
   int molpol, px[4]; 
   polar(px,molpol);
 
-  /*Read the rate matrix*/
+  /* Open the rate matrix file */
   Rate=fopen("RateMatrix.dat","r");
   if (Rate==NULL){
     printf("RateMatrix file not found!\n");
     exit(1);
   }
-
+  /* Read rate matrix */
   for (a=0;a<pro_dim*pro_dim;a++){
     if (fscanf(Rate,"%f",&K[a])!=1){
       printf("Error in reading in ratematrix!\n");
@@ -1418,8 +1546,9 @@ void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
     }
     printf("%f ",K[a]);
   }
+  printf("\nCompleted reading the Rate matrix.\n");
 
-  CG_2DES_P_DA(non,P_DA, K, pro_dim);
+   //CG_2DES_P_DA(non,P_DA, K, pro_dim);
   /* tmax and tmax1,tmax2,tmax3 are essential the same */
   /*This part is calculate xxyy,yyxx,zzxx , and xxxx yyyy zzzz which in total 9*/
   /*for (t1=0;t1<non->tmax;t1++)*/
@@ -1438,7 +1567,8 @@ void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
       for (t2=0; t2<non->tmax2; t2+=1){
             for (int a=0;a<pro_dim;a++){
                 for (int b=0;b<pro_dim;b++){
-                  PDA_t2[pro_dim*b+a]=P_DA[t2*pro_dim+pro_dim*b*non->tmax2+a];
+                  //PDA_t2[pro_dim*b+a]=P_DA[t2*pro_dim+pro_dim*b*non->tmax2+a];
+		  PDA_t2[pro_dim*b+a]=P_DA[t2*pro_dim*pro_dim+pro_dim*b+a]; // TLC
                   //P_DA[nt2*N+c*N*non->tmax2+a] += evecR[a + b * N] * cnr[b + c * N];
               }
             }
