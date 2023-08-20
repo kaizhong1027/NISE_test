@@ -630,11 +630,13 @@ void CG_2DES_window_SE(t_non *non, float *re_window_SE, float *im_window_SE){
               exit(1);
              }
             }
-	         eq_den(Hamil_i_e,rho_l,N,non);
+	    zero_coupling(Hamil_i_e,non);
+	    eq_den(Hamil_i_e,rho_l,N,non);
           // Multiply the density operator to dipole operator,vecr, as it is only the real number.
           clearvec(mid_ver,non->singles);
           for (a=0;a<N;a++){
             for (b=0;b<N;b++){
+              printf("%d %d  %f\n",a,b, rho_l[a+b*N]);
               mid_ver[a]+=rho_l[a+b*N]*vecr[b];
             }
           }
@@ -1395,7 +1397,7 @@ void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
 		  //}
 	          indext3=R*9*non->tmax3+px[2]*3*non->tmax3+px[3]*non->tmax3+t3;
 		  /* Ground state bleach */
-		  if (1==1){
+		  if (1==0){
 	          re_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_GB[indext3];
 		  re_2DES_R_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
 	          im_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_GB[indext3];
@@ -1417,7 +1419,7 @@ void CG_full_2DES_segments(t_non *non,float *re_doorway,float *im_doorway,
                   im_2DES_NR_sum[t3][t1]+=polWeight*im_doorway[indext1]*P_DA[indext2]*re_window_SE[indext3];
 		  }
                   /* Excited State Absorption */
-		  if (1==1){
+		  if (1==0){
 		  re_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*re_window_EA[indext3];
                   re_2DES_R_sum[t3][t1]-=polWeight*im_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
                   im_2DES_R_sum[t3][t1]+=polWeight*re_doorway[indext1]*P_DA[indext2]*im_window_EA[indext3];
